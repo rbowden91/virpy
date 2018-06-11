@@ -83,20 +83,25 @@ static inline void get_put_data(pid_t child, long addr, void *bytes, size_t len,
     }
 }
 
-// TODO: this should probably never be used. Ultimately leads to timing exploits maybe?
+// TODO: this should probably never be used. Ultimately leads to timing exploits maybe? But for now, convenient to have.
 void syscall_passthrough(pid_t child, struct user_regs_struct regs) {
 
     // TODO: does anything else need to be reverted?
     // TODO: is this the right number of bytes to go back??
-    regs.rip -= 2;
-    my_ptrace(PTRACE_POKEUSER, child, sizeof(long) * RIP, &regs.rip);
+    regs.rax = regs.orig_rax;
+    regs.rip = regs.rcx - 2;
+    regs.eflags = regs.r11;
+    my_ptrace(PTRACE_SETREGS, child, 0, &regs);
     my_ptrace(PTRACE_SYSCALL, child, 0, NULL);
     // TODO: which system calls don't return?
     // wait for the return
+    my_ptrace(PTRACE_GETREGS, child, 0, &regs);
+    printf("%s returned with %llu\n", syscall_map[regs.orig_rax], regs.rax);
+    // get through the syscall return
+    my_ptrace(PTRACE_SYSCALL, child, 0, NULL);
     if (regs.orig_rax != SYS_exit_group && regs.orig_rax != SYS_execve) {
-        my_ptrace(PTRACE_SYSCALL, child, 0, NULL);
-        long rax = my_ptrace(PTRACE_PEEKUSER, child, sizeof(long) * RAX, NULL);
-        printf("%s returned with %ld\n", syscall_map[regs.orig_rax], rax);
+        //my_ptrace(PTRACE_GETREGS, child, 0, &regs);
+        //printf("%s returning with %llu\n", syscall_map[regs.orig_rax], regs.rax);
     }
 }
 
@@ -121,15 +126,31 @@ int main(int argc, char *const argv[]) {
     int in_syscall = 0;
     int current_syscall = 0;
     while (true) {
-        printf("ugh\n");
+        // This doesn't seem to be supported in Windows Linux Subsystem (PTRACE_SYSEMU)
         my_ptrace(PTRACE_SYSEMU, child, 0, NULL);
 
         struct user_regs_struct regs;
-
         my_ptrace(PTRACE_GETREGS, child, 0, &regs);
-        printf("%s at %llx called with %lld, %lld, %lld\n",
-                syscall_map[regs.orig_rax], regs.rip, regs.rbx, regs.rcx, regs.rdx);
-        if (regs.orig_rax == SYS_read) {
+        printf("%s at %llx called with %lld, %llx, %lld\n",
+                syscall_map[regs.orig_rax], regs.rip, regs.rdi, regs.rsi, regs.rdx);
+        // reading from stdin
+        if (regs.orig_rax == SYS_read && regs.rdi == 0) {
+            char data[8] = "aaaaaa\n\n";
+            regs.rax = 8; 
+            // TODO: might need to align regs.rsi, or is it already aligned necessarily?
+            char data2[8] = "aaaaaaa";
+            get_data(child, (long)regs.rsi, data2, 8);
+            printf("%s\n", data2);
+            put_data(child, (long)regs.rsi, data, 8);
+            printf("%s\n", data);
+            get_data(child, (long)regs.rsi, data2, 8);
+            printf("%s\n", data2);
+            put_data(child, (long)regs.rsi, data, 8);
+            printf("%s\n", data);
+            get_data(child, (long)regs.rsi, data2, 8);
+            printf("%s\n", data2);
+            my_ptrace(PTRACE_SETREGS, child, 0, &regs);
+            my_ptrace(PTRACE_SYSEMU, child, 0, NULL);
         } else {
             syscall_passthrough(child, regs);
         }
