@@ -43,16 +43,16 @@
 long my_ptrace(int request, pid_t child, long addr, void *data) {
     long ret = ptrace(request, child, addr, data);
     if (ret == -1) {
-    	perror("Uh oh!");
-    	kill(child, SIGKILL);
-    	exit(1);
+        perror("Uh oh!");
+        kill(child, SIGKILL);
+        exit(1);
     }
     if (request == PTRACE_TRACEME || request == PTRACE_SYSCALL || request == PTRACE_SYSEMU) {
-	int status;
-	wait(&status);
-	if (WIFEXITED(status)) {
-	    exit(0);
-	}
+        int status;
+        wait(&status);
+        if (WIFEXITED(status)) {
+            exit(0);
+        }
     }
     return ret;
 }
@@ -60,26 +60,26 @@ long my_ptrace(int request, pid_t child, long addr, void *data) {
 // TODO: separate PEEKTEXT and PEEK_DATA
 static inline void get_put_data(pid_t child, long addr, void *bytes, size_t len, bool get_data) {
     while (len >= sizeof(long)) {
-    	if (get_data) {
-	    *(long *)bytes = my_ptrace(PTRACE_PEEKTEXT, child, addr, NULL);
-	} else {
-	    my_ptrace(PTRACE_POKEDATA, child, addr, bytes);
-	}
-	len -= sizeof(long);
-	bytes += sizeof(long);
-	addr += sizeof(long);
+        if (get_data) {
+            *(long *)bytes = my_ptrace(PTRACE_PEEKTEXT, child, addr, NULL);
+        } else {
+            my_ptrace(PTRACE_POKEDATA, child, addr, bytes);
+        }
+        len -= sizeof(long);
+        bytes += sizeof(long);
+        addr += sizeof(long);
     }
     // TODO: should we just disallow this altogether?
     if (len != 0) {
-    	unsigned char data[sizeof(long)];
-	*(long *)data = my_ptrace(PTRACE_PEEKTEXT, child, addr, NULL);
-	if (get_data) {
-	    memcpy(bytes, data, len);
-	} else {
-	    // TODO: endianness?
-	    memcpy(data, bytes, len);
-	    my_ptrace(PTRACE_POKEDATA, child, addr, data);
-	}
+        unsigned char data[sizeof(long)];
+        *(long *)data = my_ptrace(PTRACE_PEEKTEXT, child, addr, NULL);
+        if (get_data) {
+            memcpy(bytes, data, len);
+        } else {
+            // TODO: endianness?
+            memcpy(data, bytes, len);
+            my_ptrace(PTRACE_POKEDATA, child, addr, data);
+        }
     }
 }
 
@@ -94,9 +94,9 @@ void syscall_passthrough(pid_t child, struct user_regs_struct regs) {
     // TODO: which system calls don't return?
     // wait for the return
     if (regs.orig_rax != SYS_exit_group && regs.orig_rax != SYS_execve) {
-	my_ptrace(PTRACE_SYSCALL, child, 0, NULL);
-	long rax = my_ptrace(PTRACE_PEEKUSER, child, sizeof(long) * RAX, NULL);
-	printf("%s returned with %ld\n", syscall_map[regs.orig_rax], rax);
+        my_ptrace(PTRACE_SYSCALL, child, 0, NULL);
+        long rax = my_ptrace(PTRACE_PEEKUSER, child, sizeof(long) * RAX, NULL);
+        printf("%s returned with %ld\n", syscall_map[regs.orig_rax], rax);
     }
 }
 
@@ -112,8 +112,8 @@ void put_data(pid_t child, long addr, const void *bytes, size_t len) {
 int main(int argc, char *const argv[]) {
     pid_t child = fork();
     if (child == 0) {
-	ptrace(PTRACE_TRACEME, 0, 0, NULL);
-	execl("./test", "ls", NULL);
+        ptrace(PTRACE_TRACEME, 0, 0, NULL);
+        execl("./test", "ls", NULL);
     }
     int status;
     wait(&status);
@@ -121,18 +121,18 @@ int main(int argc, char *const argv[]) {
     int in_syscall = 0;
     int current_syscall = 0;
     while (true) {
-	printf("ugh\n");
-	my_ptrace(PTRACE_SYSEMU, child, 0, NULL);
+        printf("ugh\n");
+        my_ptrace(PTRACE_SYSEMU, child, 0, NULL);
 
-	struct user_regs_struct regs;
+        struct user_regs_struct regs;
 
-	my_ptrace(PTRACE_GETREGS, child, 0, &regs);
-	printf("%s at %llx called with %lld, %lld, %lld\n",
-		syscall_map[regs.orig_rax], regs.rip, regs.rbx, regs.rcx, regs.rdx);
-	if (regs.orig_rax == SYS_read) {
-	} else {
-	    syscall_passthrough(child, regs);
-	}
+        my_ptrace(PTRACE_GETREGS, child, 0, &regs);
+        printf("%s at %llx called with %lld, %lld, %lld\n",
+                syscall_map[regs.orig_rax], regs.rip, regs.rbx, regs.rcx, regs.rdx);
+        if (regs.orig_rax == SYS_read) {
+        } else {
+            syscall_passthrough(child, regs);
+        }
     }
     return 0;
 }
